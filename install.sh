@@ -75,10 +75,19 @@ HAVE_SYSTEMD=0
 command -v systemctl >/dev/null && [[ -d /run/systemd/system ]] && HAVE_SYSTEMD=1
 (( HAVE_SYSTEMD )) || warn "systemd not available — installing files only"
 
-# Is something already sitting on the port? Our own service doesn't count.
+# Is something already sitting on the port? Our own service doesn't count -
+# it runs as plain `python3`, so match on its pid rather than its name.
 if command -v ss >/dev/null; then
   HOLDER="$(ss -tlnpH 2>/dev/null | awk -v p=":$PORT\$" '$4 ~ p {print; exit}' || true)"
-  if [[ -n "$HOLDER" && "$HOLDER" != *ringmaster* ]]; then
+  HOLDER_PID="$(printf '%s' "$HOLDER" | sed -n 's/.*pid=\([0-9]\{1,\}\).*/\1/p')"
+  OUR_PID=0
+  if (( HAVE_SYSTEMD )); then
+    OUR_PID="$(systemctl show -p MainPID --value "$SERVICE" 2>/dev/null || echo 0)"
+    OUR_PID="${OUR_PID:-0}"
+  fi
+  if [[ -n "$HOLDER_PID" && "$HOLDER_PID" == "$OUR_PID" ]]; then
+    say "  port $PORT is held by $SERVICE (pid $OUR_PID) — it will be restarted"
+  elif [[ -n "$HOLDER" && "$HOLDER" != *ringmaster* ]]; then
     warn "port $PORT already has a listener:"
     warn "  $(printf '%s' "$HOLDER" | tr -s ' ')"
     warn "ringmaster will fail to bind until that frees up (or use --port)"
@@ -142,8 +151,17 @@ if (( NO_START )); then
   exit 0
 fi
 
-step "Starting $SERVICE"
-systemctl enable --now "$SERVICE" >/dev/null 2>&1 || systemctl enable --now "$SERVICE"
+if systemctl is-active --quiet "$SERVICE"; then
+  step "Restarting $SERVICE"
+else
+  step "Starting $SERVICE"
+fi
+
+systemctl enable "$SERVICE" >/dev/null 2>&1 || systemctl enable "$SERVICE"
+# restart, not `enable --now`: --now does nothing when the unit is already
+# running, so an upgrade would land the new script on disk and leave the old
+# one serving. restart also starts it if it was stopped, so it covers both.
+systemctl restart "$SERVICE"
 sleep 1
 
 if ! systemctl is-active --quiet "$SERVICE"; then

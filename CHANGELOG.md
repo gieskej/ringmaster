@@ -14,12 +14,27 @@ Notable changes to ringmaster. Format follows
 - `/favicon.svg` answers before the auth check, like `/healthz`, so the icon
   appears on the login page rather than being swallowed by the password
   challenge.
+- The mark now also sits inline beside the RINGMASTER wordmark in the page
+  header, with the version shown next to it as a `v0.1.0` chip.
+- Link to the project on GitHub at the foot of the dashboard.
 
 ### Changed
 
 - `_send()` takes a `cache` argument. It still defaults to `Cache-Control:
   no-store` for every existing response; only the favicon opts into
   `public, max-age=86400` so browsers stop refetching it on every page load.
+
+### Fixed
+
+- `install.sh` now restarts the service instead of running
+  `systemctl enable --now`, which does nothing when the unit is already active.
+  Re-running the installer over a running service copied the new script into
+  place and left the old one serving from memory, so an upgrade appeared to do
+  nothing until the service was restarted by hand.
+- The port preflight no longer warns about ringmaster's own listener. It matched
+  the string `ringmaster` in the `ss` line, but the unit runs as plain
+  `python3`; it now compares the holder's pid against the unit's `MainPID` and
+  says the port will be restarted rather than warning of a conflict.
 
 ### Notes
 

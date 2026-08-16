@@ -53,6 +53,9 @@ import urllib.parse
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+VERSION = "0.1.0"
+PROJECT_URL = "https://github.com/gieskej/ringmaster"
+
 LISTEN_PORT = int(os.environ.get("RINGMASTER_PORT", "80"))
 CACHE_TTL = float(os.environ.get("RINGMASTER_TTL", "45"))
 PROBE_TIMEOUT = float(os.environ.get("RINGMASTER_TIMEOUT", "1.2"))
@@ -614,8 +617,12 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
 .wrap{max-width:1180px;margin:0 auto;padding:48px 24px 72px}
 header{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;
   justify-content:space-between;padding-bottom:20px;border-bottom:1px solid var(--rule)}
-h1{font:600 15px/1 var(--mono);letter-spacing:.34em;text-transform:uppercase;margin:0 0 10px}
+h1{font:600 15px/1 var(--mono);letter-spacing:.34em;text-transform:uppercase;margin:0}
 h1 span{color:var(--host)}
+.brand{display:flex;align-items:center;gap:11px;margin:0 0 10px}
+.mark{flex:0 0 auto;width:28px;height:28px;display:block}
+.ver{font:500 10px/1 var(--mono);letter-spacing:.14em;color:var(--muted);
+  border:1px solid var(--rule);border-radius:999px;padding:4px 8px}
 .host{font:400 13px/1.4 var(--mono);color:var(--muted)}
 .rescan{font:500 12px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;
   color:var(--ink);text-decoration:none;border:1px solid var(--rule);
@@ -658,6 +665,10 @@ a.top:focus-visible{outline:2px solid var(--jack);outline-offset:3px;border-radi
 .empty{border:1px dashed var(--rule);border-radius:10px;padding:32px;color:var(--muted);
   font-size:14px}
 footer{margin-top:56px;font:400 12px/1.7 var(--mono);color:var(--muted)}
+footer a{color:var(--muted);text-decoration:none;border-bottom:1px solid var(--rule);
+  transition:color .15s,border-color .15s}
+footer a:hover,footer a:focus-visible{color:var(--host);border-color:var(--host)}
+.repo{display:block;margin-top:14px}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 """
 
@@ -679,18 +690,25 @@ ICON_HOST = (
 )
 
 # Kept inline because only ringmaster.py is installed - there is no static dir.
-# Mirrors ringmaster-favicon.svg in the repo; edit both together.
-FAVICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" \
-width="64" height="64" role="img" aria-labelledby="rm-title">
-<title id="rm-title">Ringmaster</title>
-<rect width="64" height="64" rx="12" fill="#A32D2D"/>
-<circle cx="32" cy="41" r="12.5" fill="none" stroke="#FAEEDA" stroke-width="5"/>
-<circle cx="42.6" cy="23" r="12.5" fill="none" stroke="#A32D2D" stroke-width="9"/>
-<circle cx="42.6" cy="23" r="12.5" fill="none" stroke="#FAC775" stroke-width="5"/>
-<circle cx="21.4" cy="23" r="12.5" fill="none" stroke="#A32D2D" stroke-width="9"/>
-<circle cx="21.4" cy="23" r="12.5" fill="none" stroke="#FAC775" stroke-width="5"/>
-</svg>
-"""
+# Same artwork as ringmaster-favicon.svg in the repo; edit both together.
+_MARK_BODY = (
+    '<rect width="64" height="64" rx="12" fill="#A32D2D"/>\n'
+    '<circle cx="32" cy="41" r="12.5" fill="none" stroke="#FAEEDA" stroke-width="5"/>\n'
+    '<circle cx="42.6" cy="23" r="12.5" fill="none" stroke="#A32D2D" stroke-width="9"/>\n'
+    '<circle cx="42.6" cy="23" r="12.5" fill="none" stroke="#FAC775" stroke-width="5"/>\n'
+    '<circle cx="21.4" cy="23" r="12.5" fill="none" stroke="#A32D2D" stroke-width="9"/>\n'
+    '<circle cx="21.4" cy="23" r="12.5" fill="none" stroke="#FAC775" stroke-width="5"/>\n'
+)
+
+# Served at /favicon.svg; standalone, so it carries its own title for screen readers.
+FAVICON_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64"'
+    ' height="64" role="img" aria-labelledby="rm-title">\n'
+    '<title id="rm-title">Ringmaster</title>\n' + _MARK_BODY + "</svg>\n"
+)
+
+# Inline in the page header, beside the wordmark - decorative, sized by CSS.
+MARK_SVG = f'<svg class="mark" viewBox="0 0 64 64" aria-hidden="true">\n{_MARK_BODY}</svg>'
 
 HEAD_ICON = '<link rel="icon" type="image/svg+xml" href="/favicon.svg">'
 
@@ -785,7 +803,8 @@ def page_html(data, base_host):
 </head><body><div class="wrap">
 <header>
   <div>
-    <h1>RING<span>MASTER</span></h1>
+    <div class="brand">{MARK_SVG}<h1>RING<span>MASTER</span></h1>
+      <span class="ver">v{VERSION}</span></div>
     <div class="host">{name} &middot; {len(data['apps'])} ports &middot;
       {routes_total} routes &middot; scanned {stamp}</div>
   </div>
@@ -796,7 +815,9 @@ def page_html(data, base_host):
 <footer>Ports from ss and docker ps. Routes from process env, command lines,
 app directories on disk, container labels, and links the apps themselves return -
 each one fetched before it's listed. Hover a route to see where it came from.
-Cached {int(CACHE_TTL)}s.</footer>
+Cached {int(CACHE_TTL)}s.
+<a class="repo" href="{PROJECT_URL}" target="_blank" rel="noopener noreferrer"
+  >{html.escape(PROJECT_URL.split('//', 1)[-1])}</a></footer>
 </div></body></html>"""
 
 

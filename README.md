@@ -183,3 +183,9 @@ sudo ./uninstall.sh --purge   # also delete /etc/ringmaster.pw
 - **HTTP only** for the dashboard itself; discovered apps may be either.
 - Probing is polite but real: each scan sends a `GET /` to every listening port.
   Anything that logs requests will show ringmaster in its access log.
+
+---
+
+## License
+
+MIT — see [LICENSE.md](LICENSE.md).
