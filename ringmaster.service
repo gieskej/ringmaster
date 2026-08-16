@@ -1,0 +1,37 @@
+[Unit]
+Description=Ringmaster - live index of web apps on this host
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/ringmaster.py
+Environment=RINGMASTER_PORT=80
+Environment=RINGMASTER_TTL=45
+
+# --- Optional password ------------------------------------------------
+# Leave both unset and the dashboard is open to anyone on the LAN.
+#
+# Preferred: keep the secret in a root-only file, so it never shows up in
+# `systemctl show ringmaster` or in the unit itself.
+#   printf 'your-password\n' | sudo tee /etc/ringmaster.pw >/dev/null
+#   sudo chmod 600 /etc/ringmaster.pw
+# Environment=RINGMASTER_PASSWORD_FILE=/etc/ringmaster.pw
+#
+# Quick and dirty alternative (readable by any local user via systemctl):
+# Environment=RINGMASTER_PASSWORD=change-me
+#
+# Environment=RINGMASTER_SESSION_HOURS=12
+# ----------------------------------------------------------------------
+
+Restart=on-failure
+RestartSec=5
+# Root is needed to bind :80, read process names from `ss -tlnp`, and inspect /proc.
+User=root
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
