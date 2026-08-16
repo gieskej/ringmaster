@@ -2,8 +2,8 @@
 #
 # Remove ringmaster.
 #
-#   sudo ./uninstall.sh            # stop, disable, remove script + unit
-#   sudo ./uninstall.sh --purge    # also delete the password file
+#   sudo ./scripts/uninstall.sh          # stop, disable, remove script + unit
+#   sudo ./scripts/uninstall.sh --purge  # also delete the password file
 #
 # Nothing else on the box is touched: ringmaster only ever read from it.
 

@@ -217,6 +217,11 @@ def docker_containers():
 # ----------------------------------------------------------------- fetching
 
 TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.I | re.S)
+META_RE = re.compile(r"<meta\s[^>]*>", re.I)
+ATTR_RE = re.compile(r"""([\w:.-]+)\s*=\s*["']([^"']*)["']""")
+# Checked in order when there's no <title>. Gradio (Stable Diffusion, most ML
+# demos) sets document.title from JS and ships none, but names itself here.
+META_TITLE_KEYS = ("og:title", "twitter:title", "application-name")
 HREF_RE = re.compile(r"""(?:href|src|action)\s*=\s*["']([^"']+)["']""", re.I)
 DOCS_MARKERS = re.compile(
     r"swagger-ui|redoc|rapidoc|openapi|graphiql|scalar-api", re.I
@@ -268,6 +273,32 @@ def http_get(port, path="/", scheme="http", limit=32768):
     return parse_response(raw, scheme)
 
 
+def _tidy(text):
+    return re.sub(r"\s+", " ", html.unescape(text)).strip()[:70]
+
+
+def page_title(body):
+    """What the app calls itself: <title>, else the social meta tags."""
+    found = TITLE_RE.search(body)
+    if found:
+        title = _tidy(found.group(1))
+        if title:
+            return title
+
+    meta = {}
+    for tag in META_RE.findall(body):
+        attrs = {k.lower(): v for k, v in ATTR_RE.findall(tag)}
+        key = (attrs.get("property") or attrs.get("name") or "").lower()
+        if key in META_TITLE_KEYS and attrs.get("content"):
+            meta.setdefault(key, attrs["content"])
+    for key in META_TITLE_KEYS:
+        if key in meta:
+            title = _tidy(meta[key])
+            if title:
+                return title
+    return None
+
+
 def parse_response(raw, scheme):
     head, _, body_bytes = raw.partition(b"\r\n\r\n")
     head_text = head.decode("utf-8", "replace")
@@ -284,18 +315,13 @@ def parse_response(raw, scheme):
         if value:
             headers[key.strip().lower()] = value.strip()
 
-    title = None
-    found = TITLE_RE.search(body)
-    if found:
-        title = re.sub(r"\s+", " ", html.unescape(found.group(1))).strip()[:70]
-
     return {
         "scheme": scheme,
         "status": status,
         "headers": headers,
         "ctype": headers.get("content-type", "").split(";")[0].strip().lower(),
         "location": headers.get("location"),
-        "title": title,
+        "title": page_title(body),
         "body": body,
         "signature": hashlib.md5(
             re.sub(r"\s+", " ", body[:4096]).encode("utf-8", "replace")
@@ -535,6 +561,72 @@ def pick_primary(routes):
 # ------------------------------------------------------------------- scanning
 
 
+# `ss` reports a thread name, which for some runtimes isn't the program at all:
+# PyTorch renames its main thread, so Stable Diffusion lands on the page as
+# pt_main_thread. These are the names worth looking behind.
+VAGUE_COMM = re.compile(
+    r"^(pt_main_thread|MainThread|Thread-\d+|python[\d.]*|node|deno|bun|ruby|"
+    r"perl|java|dotnet|uvicorn|gunicorn|waitress|sh|bash|dash|su|sudo)$", re.I
+)
+# Script names that say nothing - the directory they sit in says more.
+VAGUE_SCRIPT = re.compile(
+    r"^(launch|app|main|serve|server|run|start|webui|manage|wsgi|asgi|cli|"
+    r"__main__|index)\.(py|js|mjs|cjs|ts|rb)$", re.I
+)
+DULL_DIRS = {"/", "/root", "/tmp", "/usr", "/usr/local", "/opt", "/srv", "/var", "/home"}
+
+
+def process_name(pids, reported):
+    """A name for the process behind a port, better than the thread name."""
+    if reported and not VAGUE_COMM.match(reported):
+        return reported
+
+    for pid in pids[:4]:
+        try:
+            with open(f"/proc/{pid}/cmdline", "rb") as handle:
+                argv = [
+                    part for part in
+                    handle.read(16384).decode("utf-8", "replace").split("\0") if part
+                ]
+        except OSError:
+            argv = []
+
+        # A real program name beats anything else - and beats the working
+        # directory, which for something like a language server is just
+        # whatever folder it was pointed at.
+        exe = os.path.basename(argv[0]) if argv else ""
+        if exe and not VAGUE_COMM.match(exe):
+            return exe
+
+        script = ""
+        for part in argv[1:]:
+            if not part.startswith("-") and part.lower().endswith(
+                (".py", ".js", ".mjs", ".cjs", ".ts", ".rb")
+            ):
+                script = os.path.basename(part)
+                break
+
+        try:
+            cwd = os.path.realpath(f"/proc/{pid}/cwd")
+        except OSError:
+            cwd = ""
+        # realpath hands back the input for a dead pid or one we can't read,
+        # which would name the app "cwd" - so insist on a real directory.
+        if not cwd or cwd.startswith("/proc/") or not os.path.isdir(cwd):
+            cwd = ""
+        # An interpreter, then: the script names it, unless the script is
+        # called launch.py or app.py, in which case the checkout directory
+        # does a better job (stable-diffusion-webui).
+        if script and not VAGUE_SCRIPT.match(script):
+            return script
+        if cwd and cwd not in DULL_DIRS and cwd != os.path.expanduser("~"):
+            return os.path.basename(cwd)
+        if script:
+            return script
+
+    return reported or "unknown process"
+
+
 def inspect_port(port, host_entry, container):
     root = probe_root(port)
     if not root:
@@ -556,7 +648,9 @@ def inspect_port(port, host_entry, container):
         "port": port,
         "scheme": scheme,
         "source": "docker" if container else "host",
-        "owner": container["name"] if container else (host_entry.get("process") or "unknown process"),
+        "owner": container["name"] if container else process_name(
+            host_entry.get("pids", []), host_entry.get("process")
+        ),
         "detail": container["image"] if container else None,
         "title": primary["title"] or (routes[0]["title"] if routes else None),
         "primary": primary,
@@ -690,7 +784,7 @@ ICON_HOST = (
 )
 
 # Kept inline because only ringmaster.py is installed - there is no static dir.
-# Same artwork as ringmaster-favicon.svg in the repo; edit both together.
+# Same artwork as assets/ringmaster-favicon.svg in the repo; edit both together.
 _MARK_BODY = (
     '<rect width="64" height="64" rx="12" fill="#A32D2D"/>\n'
     '<circle cx="32" cy="41" r="12.5" fill="none" stroke="#FAEEDA" stroke-width="5"/>\n'

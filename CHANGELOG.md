@@ -20,12 +20,26 @@ Notable changes to ringmaster. Format follows
 
 ### Changed
 
+- Repository layout: helper scripts moved to `scripts/`, the unit template to
+  `systemd/`, and the icon to `assets/`. `ringmaster.py` stays a single
+  stdlib-only file at the root, and nothing about how it installs or runs
+  changed — but the commands are now `sudo ./scripts/install.sh` and
+  `sudo ./scripts/uninstall.sh`.
 - `_send()` takes a `cache` argument. It still defaults to `Cache-Control:
   no-store` for every existing response; only the favicon opts into
   `public, max-age=86400` so browsers stop refetching it on every page load.
 
 ### Fixed
 
+- Apps that ship no `<title>` now fall back to `og:title`, `twitter:title` and
+  `application-name`. Gradio sets the document title from JavaScript, so
+  Stable Diffusion (and most ML demos) had no name to show.
+- Ports are no longer labelled with a thread name. `ss` reports whatever the
+  main thread is called, so PyTorch apps showed up as `pt_main_thread` and
+  anything Python-threaded as `MainThread`; the name now comes from the
+  executable, the script, or the checkout directory — in that order, so a
+  Stable Diffusion checkout reads `stable-diffusion-webui` rather than the
+  folder a language server happens to be pointed at.
 - `install.sh` now restarts the service instead of running
   `systemctl enable --now`, which does nothing when the unit is already active.
   Re-running the installer over a running service copied the new script into
@@ -40,8 +54,8 @@ Notable changes to ringmaster. Format follows
 
 - The SVG is embedded in `ringmaster.py` rather than shipped alongside it —
   `install.sh` copies only the one script to `/usr/local/bin`, so a sibling file
-  would never reach the installed service. `ringmaster-favicon.svg` in the repo
-  is the same artwork; edit both together.
+  would never reach the installed service. `assets/ringmaster-favicon.svg` is
+  the same artwork; edit both together.
 
 ## [0.1.0] — 2026-08-15
 

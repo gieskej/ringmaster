@@ -3,11 +3,11 @@
 # Install ringmaster: copies the script into place, writes a systemd unit,
 # optionally sets a password, and starts the service.
 #
-#   sudo ./install.sh                        # port 80, no password
-#   sudo ./install.sh --port 8080            # different port
-#   sudo ./install.sh --ask-password         # prompt, store in /etc/ringmaster.pw
-#   sudo ./install.sh --password 'hunter2'   # non-interactive
-#   sudo ./install.sh --no-start             # install but don't enable/start
+#   sudo ./scripts/install.sh                      # port 80, no password
+#   sudo ./scripts/install.sh --port 8080          # different port
+#   sudo ./scripts/install.sh --ask-password       # prompt, store in /etc/ringmaster.pw
+#   sudo ./scripts/install.sh --password 'hunter2' # non-interactive
+#   sudo ./scripts/install.sh --no-start           # install but don't enable/start
 #
 # Re-running is safe: it upgrades the script and unit in place.
 
@@ -17,7 +17,9 @@ BIN_DIR="${BIN_DIR:-/usr/local/bin}"
 UNIT_DIR="${UNIT_DIR:-/etc/systemd/system}"
 PW_FILE="${PW_FILE:-/etc/ringmaster.pw}"
 SERVICE="ringmaster"
-SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SRC_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"   # repo root - ringmaster.py lives there
+UNIT_SRC="$SRC_DIR/systemd/$SERVICE.service"
 
 PORT="80"
 PASSWORD=""
@@ -57,9 +59,8 @@ if [[ $EUID -ne 0 && "${SKIP_ROOT_CHECK:-0}" != "1" ]]; then
   die "run this with sudo — it writes to $BIN_DIR and $UNIT_DIR"
 fi
 
-for file in ringmaster.py ringmaster.service; do
-  [[ -f "$SRC_DIR/$file" ]] || die "$file not found next to install.sh"
-done
+[[ -f "$SRC_DIR/ringmaster.py" ]] || die "ringmaster.py not found in $SRC_DIR"
+[[ -f "$UNIT_SRC" ]] || die "systemd/$SERVICE.service not found in $SRC_DIR"
 
 command -v python3 >/dev/null || die "python3 not found (apt install python3)"
 python3 - <<'PY' || die "python3 3.8+ required"
@@ -122,7 +123,7 @@ install -m 755 "$SRC_DIR/ringmaster.py" "$BIN_DIR/ringmaster.py"
 say "  $BIN_DIR/ringmaster.py"
 
 UNIT="$UNIT_DIR/$SERVICE.service"
-install -m 644 "$SRC_DIR/ringmaster.service" "$UNIT"
+install -m 644 "$UNIT_SRC" "$UNIT"
 
 # Point ExecStart at wherever we actually put the script, and apply options.
 sed -i "s|^ExecStart=.*|ExecStart=$BIN_DIR/ringmaster.py|" "$UNIT"
@@ -182,7 +183,7 @@ if (( SET_PASSWORD )); then
   say "  password required (stored in $PW_FILE)"
 else
   say "  no password — anyone who can reach the port can see the dashboard"
-  say "  ${DIM}add one later: sudo ./install.sh --ask-password${OFF}"
+  say "  ${DIM}add one later: sudo ./scripts/install.sh --ask-password${OFF}"
 fi
 say ""
 say "  logs:    journalctl -u $SERVICE -f"

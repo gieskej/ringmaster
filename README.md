@@ -22,9 +22,14 @@ One Python file, standard library only. No pip, no node, no database.
 | `docker ps` | running containers and their published host ports |
 
 Ports published by Docker are matched back to their container, so you get
-`jellyfin` rather than `docker-proxy`. Everything found is then actually fetched
-over HTTP (falling back to a TLS handshake), so databases, SSH and message
-brokers drop out on their own — only things that really answer a browser survive.
+`jellyfin` rather than `docker-proxy`. `ss` reports a *thread* name, which some
+runtimes rewrite — PyTorch calls its main thread `pt_main_thread` — so when the
+name looks like a thread or a bare interpreter, ringmaster names the app from
+the executable, the script it's running, or the checkout directory instead.
+
+Everything found is then actually fetched over HTTP (falling back to a TLS
+handshake), so databases, SSH and message brokers drop out on their own — only
+things that really answer a browser survive.
 
 **Routes** are the interesting part. Plenty of services answer `/` with JSON and
 keep the actual UI somewhere else, so ringmaster hunts for the rest of the app:
@@ -41,7 +46,8 @@ keep the actual UI somewhere else, so ringmaster hunts for the rest of the app:
 Every candidate is fetched before it's listed — a hint alone never puts a link on
 the page. What comes back decides how it's labelled:
 
-- **app** — HTML with a `<title>`
+- **app** — HTML with a `<title>`, or an `og:title` / `twitter:title` for apps
+  like Gradio that set the real title from JavaScript
 - **api** — JSON or XML
 - **docs** — swagger-ui, redoc, rapidoc, graphiql or an OpenAPI document
 
@@ -64,20 +70,35 @@ wouldn't work.
 
 ---
 
+## Layout
+
+```text
+ringmaster.py                     the whole app - stdlib only, nothing imported from here
+scripts/install.sh                copies it to /usr/local/bin, writes the unit, starts it
+scripts/uninstall.sh              stop, disable, remove
+systemd/ringmaster.service        the unit template; install.sh rewrites ExecStart and the port
+assets/ringmaster-favicon.svg     the site icon, also embedded in ringmaster.py
+```
+
+Only `ringmaster.py` is installed, so the icon lives in the script as well as in
+`assets/` — edit the two together.
+
+---
+
 ## Install
 
 ```bash
-sudo ./install.sh
+sudo ./scripts/install.sh
 ```
 
 That copies `ringmaster.py` to `/usr/local/bin`, installs a systemd unit, enables
 it, and prints the URL. Options:
 
 ```bash
-sudo ./install.sh --port 8080        # somewhere other than :80
-sudo ./install.sh --ask-password     # prompt, then store in /etc/ringmaster.pw
-sudo ./install.sh --password 'pw'    # non-interactive
-sudo ./install.sh --no-start         # install without enabling the service
+sudo ./scripts/install.sh --port 8080        # somewhere other than :80
+sudo ./scripts/install.sh --ask-password     # prompt, then store in /etc/ringmaster.pw
+sudo ./scripts/install.sh --password 'pw'    # non-interactive
+sudo ./scripts/install.sh --no-start         # install without enabling the service
 ```
 
 Re-running upgrades in place and keeps an existing password file. Requirements:
@@ -101,7 +122,7 @@ sudo chmod 600 /etc/ringmaster.pw
 sudo systemctl restart ringmaster
 ```
 
-or just `sudo ./install.sh --ask-password`.
+or just `sudo ./scripts/install.sh --ask-password`.
 
 A correct password sets an `HttpOnly`, `SameSite=Lax` session cookie good for 12
 hours; a **Lock** button next to Rescan ends the session. Comparison is
@@ -167,8 +188,8 @@ session. Hover the pill to see where the path came from; that usually explains i
 ## Uninstall
 
 ```bash
-sudo ./uninstall.sh           # stop, disable, remove script and unit
-sudo ./uninstall.sh --purge   # also delete /etc/ringmaster.pw
+sudo ./scripts/uninstall.sh           # stop, disable, remove script and unit
+sudo ./scripts/uninstall.sh --purge   # also delete /etc/ringmaster.pw
 ```
 
 ---
