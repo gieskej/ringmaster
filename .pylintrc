@@ -1,0 +1,6 @@
+# ringmaster is deliberately one file: install.sh copies a single script to
+# /usr/local/bin, so there is nothing to import from and nothing to split into.
+# The length limit is raised rather than the design changed - but not removed,
+# so unbounded growth still gets flagged.
+[MAIN]
+max-module-lines=1500

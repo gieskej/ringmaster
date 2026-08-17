@@ -16,7 +16,8 @@ Notable changes to ringmaster. Format follows
   challenge.
 - The mark now also sits inline beside the RINGMASTER wordmark in the page
   header, with the version shown next to it as a `v0.1.0` chip.
-- Link to the project on GitHub at the foot of the dashboard.
+- The header mark links to the project on GitHub, opening in a new tab. The
+  link carries the accessible name, since the artwork itself is decorative.
 
 ### Changed
 
@@ -28,6 +29,15 @@ Notable changes to ringmaster. Format follows
 - `_send()` takes a `cache` argument. It still defaults to `Cache-Control:
   no-store` for every existing response; only the favicon opts into
   `public, max-age=86400` so browsers stop refetching it on every page load.
+
+- Clean pylint run (10.00/10), with `.pylintrc` recording the one project
+  convention it can't infer: ringmaster is deliberately a single file, so the
+  module-length limit is raised rather than the design split up. Docstrings
+  filled in, an unused `glob` import dropped, and the handler's
+  `return self._send(...)` idiom unwound into a call and a bare `return` —
+  `_send()` returns nothing, so returning it only looked like it meant
+  something. The JSON tree-walk moved into `_paths_in_json()` and the endpoints
+  that answer before the password check into `_open_route()`.
 
 ### Fixed
 

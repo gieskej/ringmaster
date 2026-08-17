@@ -35,7 +35,6 @@ over plain HTTP, so treat it as a lock on the LAN door, not a secret.
 
 import base64
 import concurrent.futures
-import glob
 import hashlib
 import hmac
 import html
@@ -53,7 +52,7 @@ import urllib.parse
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 PROJECT_URL = "https://github.com/gieskej/ringmaster"
 
 LISTEN_PORT = int(os.environ.get("RINGMASTER_PORT", "80"))
@@ -300,6 +299,7 @@ def page_title(body):
 
 
 def parse_response(raw, scheme):
+    """Split a raw HTTP response into status, headers, title and body."""
     head, _, body_bytes = raw.partition(b"\r\n\r\n")
     head_text = head.decode("utf-8", "replace")
     body = body_bytes.decode("utf-8", "replace")
@@ -360,6 +360,27 @@ def classify(result):
 # ------------------------------------------------------------ path hunting
 
 
+def _paths_in_json(body):
+    """Walk a JSON body for strings that look like paths worth fetching."""
+    try:
+        data = json.loads(body[:65536])
+    except ValueError:
+        return []
+    found, stack, seen = [], [data], 0
+    while stack and seen < 400:
+        node = stack.pop()
+        seen += 1
+        if isinstance(node, dict):
+            stack.extend(node.values())
+        elif isinstance(node, list):
+            stack.extend(node[:50])
+        elif isinstance(node, str):
+            path = _clean_path(node)
+            if path and path != "/":
+                found.append(path)
+    return found
+
+
 def hints_from_response(result):
     """Paths advertised by the app itself: links, JSON urls, Link headers."""
     hints = {}
@@ -384,22 +405,8 @@ def hints_from_response(result):
                 hints.setdefault(path, "linked from /")
 
     if result["ctype"].endswith("json"):
-        try:
-            data = json.loads(result["body"][:65536])
-        except ValueError:
-            data = None
-        stack, seen = [data], 0
-        while stack and seen < 400:
-            node = stack.pop()
-            seen += 1
-            if isinstance(node, dict):
-                stack.extend(node.values())
-            elif isinstance(node, list):
-                stack.extend(node[:50])
-            elif isinstance(node, str):
-                path = _clean_path(node)
-                if path and path != "/":
-                    hints.setdefault(path, "url in the API response at /")
+        for path in _paths_in_json(result["body"]):
+            hints.setdefault(path, "url in the API response at /")
     return hints
 
 
@@ -628,6 +635,7 @@ def process_name(pids, reported):
 
 
 def inspect_port(port, host_entry, container):
+    """Everything the page needs about one port, or None if it is not a web app."""
     root = probe_root(port)
     if not root:
         return None
@@ -662,6 +670,7 @@ def inspect_port(port, host_entry, container):
 
 
 def scan():
+    """Sweep every listening port in parallel and return the page payload."""
     hosts = listening_ports()
     containers = docker_containers()
     candidates = sorted((set(hosts) | set(containers)) - SKIP_PORTS - {LISTEN_PORT})
@@ -675,7 +684,8 @@ def scan():
         for future in concurrent.futures.as_completed(futures):
             try:
                 app = future.result()
-            except Exception:  # one bad port shouldn't sink the page
+            except Exception:  # pylint: disable=broad-exception-caught
+                # one bad port shouldn't sink the whole page
                 app = None
             if app:
                 apps.append(app)
@@ -684,10 +694,11 @@ def scan():
     return {"apps": apps, "scanned_at": time.time(), "hostname": socket.gethostname()}
 
 
-_cache = {"data": None, "at": 0.0}
+_cache = {"data": {}, "at": 0.0}
 
 
 def get_scan(force=False):
+    """The most recent scan, re-running it when it is stale or forced."""
     now = time.time()
     if force or not _cache["data"] or now - _cache["at"] > CACHE_TTL:
         _cache["data"] = scan()
@@ -714,7 +725,11 @@ header{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;
 h1{font:600 15px/1 var(--mono);letter-spacing:.34em;text-transform:uppercase;margin:0}
 h1 span{color:var(--host)}
 .brand{display:flex;align-items:center;gap:11px;margin:0 0 10px}
-.mark{flex:0 0 auto;width:28px;height:28px;display:block}
+.mark{flex:0 0 auto;display:block;border-radius:7px;line-height:0;
+  transition:opacity .15s,box-shadow .15s}
+.mark svg{width:28px;height:28px;display:block}
+.mark:hover{opacity:.82}
+.mark:focus-visible{outline:none;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--host)}
 .ver{font:500 10px/1 var(--mono);letter-spacing:.14em;color:var(--muted);
   border:1px solid var(--rule);border-radius:999px;padding:4px 8px}
 .host{font:400 13px/1.4 var(--mono);color:var(--muted)}
@@ -759,10 +774,6 @@ a.top:focus-visible{outline:2px solid var(--jack);outline-offset:3px;border-radi
 .empty{border:1px dashed var(--rule);border-radius:10px;padding:32px;color:var(--muted);
   font-size:14px}
 footer{margin-top:56px;font:400 12px/1.7 var(--mono);color:var(--muted)}
-footer a{color:var(--muted);text-decoration:none;border-bottom:1px solid var(--rule);
-  transition:color .15s,border-color .15s}
-footer a:hover,footer a:focus-visible{color:var(--host);border-color:var(--host)}
-.repo{display:block;margin-top:14px}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 """
 
@@ -801,8 +812,13 @@ FAVICON_SVG = (
     '<title id="rm-title">Ringmaster</title>\n' + _MARK_BODY + "</svg>\n"
 )
 
-# Inline in the page header, beside the wordmark - decorative, sized by CSS.
-MARK_SVG = f'<svg class="mark" viewBox="0 0 64 64" aria-hidden="true">\n{_MARK_BODY}</svg>'
+# Inline in the page header, beside the wordmark, linking to the project. The
+# art is decorative and sized by CSS; the link carries the accessible name.
+MARK_SVG = (
+    f'<a class="mark" href="{PROJECT_URL}" target="_blank" rel="noopener noreferrer"'
+    f' title="ringmaster v{VERSION} on GitHub" aria-label="ringmaster on GitHub">'
+    f'<svg viewBox="0 0 64 64" aria-hidden="true">\n{_MARK_BODY}</svg></a>'
+)
 
 HEAD_ICON = '<link rel="icon" type="image/svg+xml" href="/favicon.svg">'
 
@@ -810,6 +826,7 @@ KIND_LABEL = {"ui": "app", "api": "api", "docs": "docs"}
 
 
 def pill_html(route, base_url, clickable):
+    """One route pill, linked unless the app is loopback-only."""
     kind = route["kind"]
     label = html.escape(route["path"])
     tip = html.escape(f"{KIND_LABEL[kind]} · found via {route['hint']}")
@@ -823,6 +840,7 @@ def pill_html(route, base_url, clickable):
 
 
 def card_html(app, base_host):
+    """One card: port, name, source line and its route pills."""
     docker = app["source"] == "docker"
     accent = "var(--docker)" if docker else "var(--host)"
     icon = ICON_DOCKER if docker else ICON_HOST
@@ -867,6 +885,7 @@ def card_html(app, base_host):
 
 
 def page_html(data, base_host):
+    """The dashboard itself."""
     public = [a for a in data["apps"] if a["public"]]
     local = [a for a in data["apps"] if not a["public"]]
     stamp = datetime.fromtimestamp(data["scanned_at"]).strftime("%H:%M:%S")
@@ -909,9 +928,7 @@ def page_html(data, base_host):
 <footer>Ports from ss and docker ps. Routes from process env, command lines,
 app directories on disk, container labels, and links the apps themselves return -
 each one fetched before it's listed. Hover a route to see where it came from.
-Cached {int(CACHE_TTL)}s.
-<a class="repo" href="{PROJECT_URL}" target="_blank" rel="noopener noreferrer"
-  >{html.escape(PROJECT_URL.split('//', 1)[-1])}</a></footer>
+Cached {int(CACHE_TTL)}s.</footer>
 </div></body></html>"""
 
 
@@ -923,6 +940,7 @@ def _matches(candidate):
 
 
 def new_session():
+    """Mint a session token, sweeping expired ones on the way past."""
     token = secrets.token_urlsafe(32)
     now = time.time()
     for old, expiry in list(_sessions.items()):
@@ -933,6 +951,7 @@ def new_session():
 
 
 def session_valid(token):
+    """Is this token live? Expired ones are dropped as they are found."""
     expiry = _sessions.get(token)
     if not expiry:
         return False
@@ -943,11 +962,13 @@ def session_valid(token):
 
 
 def locked_out(ip):
-    count, until = _failures.get(ip, (0, 0))
+    """Is this address in its cool-off after too many bad guesses?"""
+    _, until = _failures.get(ip, (0, 0))
     return time.time() < until
 
 
 def note_failure(ip):
+    """Count a bad guess, and start the lockout once there are enough."""
     count, until = _failures.get(ip, (0, 0))
     count += 1
     if count >= LOCKOUT_AFTER:
@@ -957,6 +978,7 @@ def note_failure(ip):
 
 
 def note_success(ip):
+    """A good password clears whatever this address had against it."""
     _failures.pop(ip, None)
 
 
@@ -980,6 +1002,7 @@ LOGIN_CSS = """
 
 
 def login_html(hostname, error=None):
+    """The password page, with an optional error under the form."""
     name = html.escape(hostname)
     note = f'<div class="error">{html.escape(error)}</div>' if error else ""
     return f"""<!doctype html>
@@ -1004,6 +1027,8 @@ def login_html(hostname, error=None):
 
 
 class Handler(BaseHTTPRequestHandler):
+    """The whole HTTP surface: dashboard, JSON, favicon, login, health."""
+
     server_version = "ringmaster"
 
     def _send(self, body, ctype="text/html; charset=utf-8", code=200, extra=(),
@@ -1022,6 +1047,7 @@ class Handler(BaseHTTPRequestHandler):
 
     @property
     def client_ip(self):
+        """Who is asking - used for the per-address lockout."""
         return self.client_address[0] if self.client_address else "?"
 
     def _cookie_token(self):
@@ -1048,6 +1074,7 @@ class Handler(BaseHTTPRequestHandler):
         return _matches(decoded.partition(":")[2])
 
     def authed(self):
+        """True when no password is set, or the caller has proved they know it."""
         if not AUTH_ON:
             return True
         return session_valid(self._cookie_token()) or self._basic_ok()
@@ -1063,50 +1090,68 @@ class Handler(BaseHTTPRequestHandler):
         return ("Set-Cookie", "; ".join(parts))
 
     def _challenge(self, wants_json, error=None):
+        """Ask for the password: a 401 for scripts, the login page for browsers."""
         if wants_json:
-            return self._send(
+            self._send(
                 json.dumps({"error": "authentication required"}),
                 "application/json",
                 401,
                 [("WWW-Authenticate", 'Basic realm="ringmaster"')],
             )
+            return
         code = 401 if error else 200
         self._send(login_html(socket.gethostname(), error), code=code)
 
     # -- routes -----------------------------------------------------------
 
-    def do_GET(self):
-        path, _, query = self.path.partition("?")
+    def _open_route(self, path):
+        """Endpoints answered before the password check. True if handled."""
         if path == "/healthz":
-            return self._send("ok", "text/plain; charset=utf-8")
+            self._send("ok", "text/plain; charset=utf-8")
+            return True
 
-        # Unauthenticated so the login page gets its icon too.
+        # Open so the login page gets its icon too.
         if path in ("/favicon.svg", "/favicon.ico"):
-            return self._send(
+            self._send(
                 FAVICON_SVG, "image/svg+xml; charset=utf-8",
                 cache="public, max-age=86400",
             )
+            return True
 
         if path == "/logout":
             _sessions.pop(self._cookie_token(), None)
-            return self._send(
+            self._send(
                 "", "text/html; charset=utf-8", 303,
                 [("Location", "/"), self._cookie_header("", clear=True)],
             )
+            return True
+
+        return False
+
+    # do_GET/do_POST are named by BaseHTTPRequestHandler, not by us.
+    def do_GET(self):  # pylint: disable=invalid-name
+        """Serve the dashboard, the JSON, or one of the open endpoints."""
+        path, _, query = self.path.partition("?")
+        if self._open_route(path):
+            return
 
         wants_json = path == "/apps.json"
         if not self.authed():
-            return self._challenge(wants_json)
+            self._challenge(wants_json)
+            return
 
         if path == "/login":
-            return self._send("", "text/html; charset=utf-8", 303, [("Location", "/")])
+            self._send("", "text/html; charset=utf-8", 303, [("Location", "/")])
+            return
 
         data = get_scan(force="rescan" in query)
 
         if wants_json:
-            return self._send(json.dumps(data, indent=2), "application/json")
+            self._send(json.dumps(data, indent=2), "application/json")
+            return
         if path not in ("/", "/index.html"):
-            return self._send("not found", "text/plain; charset=utf-8", 404)
+            self._send("not found", "text/plain; charset=utf-8", 404)
+            return
 
         host_header = self.headers.get("Host", "") or data["hostname"]
         if host_header.startswith("["):
@@ -1115,13 +1160,16 @@ class Handler(BaseHTTPRequestHandler):
             base_host = host_header.rsplit(":", 1)[0]
         self._send(page_html(data, base_host))
 
-    def do_POST(self):
+    def do_POST(self):  # pylint: disable=invalid-name
+        """Only /login posts anywhere: check the password, hand out a session."""
         path, _, _query = self.path.partition("?")
         if path != "/login" or not AUTH_ON:
-            return self._send("not found", "text/plain; charset=utf-8", 404)
+            self._send("not found", "text/plain; charset=utf-8", 404)
+            return
 
         if locked_out(self.client_ip):
-            return self._challenge(False, "Too many attempts. Wait a minute.")
+            self._challenge(False, "Too many attempts. Wait a minute.")
+            return
 
         try:
             length = min(int(self.headers.get("Content-Length", "0")), 4096)
@@ -1134,7 +1182,8 @@ class Handler(BaseHTTPRequestHandler):
         if not _matches(candidate):
             note_failure(self.client_ip)
             time.sleep(0.4)  # take the shine off brute forcing
-            return self._challenge(False, "Wrong password.")
+            self._challenge(False, "Wrong password.")
+            return
 
         note_success(self.client_ip)
         self._send(
@@ -1142,11 +1191,12 @@ class Handler(BaseHTTPRequestHandler):
             [("Location", "/"), self._cookie_header(new_session())],
         )
 
-    def log_message(self, fmt, *args):
-        pass
+    def log_message(self, format, *args):  # pylint: disable=redefined-builtin
+        """Silence the per-request stderr logging systemd would capture."""
 
 
 def main():
+    """Bind the port and serve until interrupted."""
     try:
         httpd = ThreadingHTTPServer(("0.0.0.0", LISTEN_PORT), Handler)
     except PermissionError:
