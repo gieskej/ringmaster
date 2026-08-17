@@ -52,6 +52,9 @@ Notable changes to ringmaster. Format follows
 
 ### Notes
 
+- `ProtectHome=true` in the unit hides `/home` from ringmaster, so cwd-based
+  route hints and naming don't work for apps installed there. Documented under
+  Known limits rather than changed; `ProtectHome=read-only` is the opt-out.
 - The SVG is embedded in `ringmaster.py` rather than shipped alongside it —
   `install.sh` copies only the one script to `/usr/local/bin`, so a sibling file
   would never reach the installed service. `assets/ringmaster-favicon.svg` is

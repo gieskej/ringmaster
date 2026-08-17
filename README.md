@@ -1,7 +1,10 @@
 # ringmaster
 
-A dashboard for the home server that answers one question: *what am I running,
+A dashboard for your home server that answers one question: *What am I running,
 and on which port?*
+
+If you're like me, you've installed a dozen open-source projects on your box and
+can never remember which port each one landed on.
 
 It sits on `:80`, sweeps the box every time you load it, and lists every web app
 it can find — bare metal and Docker alike — with working links. Nothing to
@@ -9,6 +12,8 @@ register, no config file to keep in sync. Start a new service and it shows up on
 the next refresh.
 
 One Python file, standard library only. No pip, no node, no database.
+
+![The ringmaster dashboard: a card per service found on the host, each showing its port, the app's own name, and the routes discovered on it](assets/ringmaster-screenshot.png)
 
 ---
 
@@ -85,6 +90,17 @@ Only `ringmaster.py` is installed, so the icon lives in the script as well as in
 
 ---
 
+## Requirements
+
+- **Linux** — ports come from `ss`, route hints from `/proc`
+- **Python 3.8+** — standard library only, nothing to install
+- **`iproute2`** for `ss` — without it, only Docker containers are found
+- **systemd** if you want it running as a service; `install.sh` works without
+  it, and tells you how to start it yourself
+- **Docker** only if you want container discovery
+
+---
+
 ## Install
 
 ```bash
@@ -95,15 +111,13 @@ That copies `ringmaster.py` to `/usr/local/bin`, installs a systemd unit, enable
 it, and prints the URL. Options:
 
 ```bash
-sudo ./scripts/install.sh --port 8080        # somewhere other than :80
-sudo ./scripts/install.sh --ask-password     # prompt, then store in /etc/ringmaster.pw
-sudo ./scripts/install.sh --password 'pw'    # non-interactive
 sudo ./scripts/install.sh --no-start         # install without enabling the service
+sudo ./scripts/install.sh --port 8080        # somewhere other than :80
+sudo ./scripts/install.sh --ask-password     # prompt for optional password, then store in /etc/ringmaster.pw
+sudo ./scripts/install.sh --password 'pw'    # non-interactive
 ```
 
-Re-running upgrades in place and keeps an existing password file. Requirements:
-Python 3.8+, `iproute2` for `ss`, and Docker only if you want container
-discovery.
+Re-running install.sh upgrades in place and keeps an existing password file.
 
 It runs as root because it needs `:80`, process names from `ss -tlnp`, and
 `/proc` for the route hints. It only ever reads — nothing on the box is modified.
@@ -201,6 +215,13 @@ sudo ./scripts/uninstall.sh --purge   # also delete /etc/ringmaster.pw
   those paths are deliberately left out rather than shown as broken links.
 - **Container filesystems aren't inspected**, only bind-mount sources visible on
   the host. Env and labels from `docker inspect` fill most of that gap.
+- **Apps living under `/home` give up their working directory.** The unit sets
+  `ProtectHome=true`, so systemd hides `/home` from ringmaster itself: the
+  `/proc/<pid>/cwd` hints above find nothing there, and an app that would have
+  been named after its checkout falls back to its script — `launch.py` rather
+  than `stable-diffusion-webui`. Env, cmdline and response hints are unaffected.
+  Set `ProtectHome=read-only` in the unit if you'd rather have the hints than
+  the sandbox.
 - **HTTP only** for the dashboard itself; discovered apps may be either.
 - Probing is polite but real: each scan sends a `GET /` to every listening port.
   Anything that logs requests will show ringmaster in its access log.

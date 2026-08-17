@@ -30,6 +30,9 @@ RestartSec=5
 User=root
 NoNewPrivileges=true
 ProtectSystem=full
+# This hides /home from ringmaster too, so apps whose code lives there lose the
+# /proc/<pid>/cwd route hints and are named after their script rather than their
+# checkout. read-only restores that; true keeps home directories out of reach.
 ProtectHome=true
 PrivateTmp=true
 
