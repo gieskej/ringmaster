@@ -8,6 +8,19 @@ Notable changes to ringmaster. Format follows
 
 ### Added
 
+- End-to-end test suite in `tests/test_e2e.py` — 30 tests, stdlib `unittest`,
+  about fifteen seconds. Each starts a real ringmaster process and drives it
+  over HTTP: open endpoints, favicon bytes and cache headers, the JSON shape,
+  404s, redirects, the whole password flow (challenge, Basic auth, cookie,
+  logout, lockout), and installer argument handling. Discovery is covered
+  against fake services on loopback ports — a Gradio-style page named only by
+  `og:title`, an API that advertises its UI in a JSON field, a port that
+  answers nothing — so nothing about the scan is mocked.
+
+## [0.1.1] — 2026-08-16
+
+### Added
+
 - Site icon — three rings on a red field — shown in the browser tab for both the
   dashboard and the login page. Served at `/favicon.svg`, and at `/favicon.ico`
   for browsers that ask for that path unprompted.
@@ -15,7 +28,7 @@ Notable changes to ringmaster. Format follows
   appears on the login page rather than being swallowed by the password
   challenge.
 - The mark now also sits inline beside the RINGMASTER wordmark in the page
-  header, with the version shown next to it as a `v0.1.0` chip.
+  header, with the running version shown beside it as a chip.
 - The header mark links to the project on GitHub, opening in a new tab. The
   link carries the accessible name, since the artwork itself is decorative.
 
@@ -29,7 +42,6 @@ Notable changes to ringmaster. Format follows
 - `_send()` takes a `cache` argument. It still defaults to `Cache-Control:
   no-store` for every existing response; only the favicon opts into
   `public, max-age=86400` so browsers stop refetching it on every page load.
-
 - Clean pylint run (10.00/10), with `.pylintrc` recording the one project
   convention it can't infer: ringmaster is deliberately a single file, so the
   module-length limit is raised rather than the design split up. Docstrings

@@ -1,4 +1,4 @@
-# ringmaster
+# Ringmaster
 
 A dashboard for your home server that answers one question: *What am I running,
 and on which port?*
@@ -6,10 +6,10 @@ and on which port?*
 If you're like me, you've installed a dozen open-source projects on your box and
 can never remember which port each one landed on.
 
-It sits on `:80`, sweeps the box every time you load it, and lists every web app
-it can find — bare metal and Docker alike — with working links. Nothing to
+Ringmaster sits on `:80`, sweeps the box every time you load it, and lists every
+web app it can find — bare metal and Docker alike — with working links. Nothing to
 register, no config file to keep in sync. Start a new service and it shows up on
-the next refresh.
+the next refresh.  It's a dynamic, clickable list of webapps on your box.
 
 One Python file, standard library only. No pip, no node, no database.
 
@@ -63,7 +63,7 @@ from (`BASE_URL in the process environment`, `url in the API response at /`).
 
 A typical card, for a service whose root is a REST API:
 
-```
+``` text
 :8300   Widget Control
         widgetd · docker · ghcr.io/you/widgetd
         [ / api ] [ /ui/ app ] [ /console/ app ] [ /docs docs ]
@@ -83,6 +83,7 @@ scripts/install.sh                copies it to /usr/local/bin, writes the unit, 
 scripts/uninstall.sh              stop, disable, remove
 systemd/ringmaster.service        the unit template; install.sh rewrites ExecStart and the port
 assets/ringmaster-favicon.svg     the site icon, also embedded in ringmaster.py
+tests/test_e2e.py                 end-to-end tests; stdlib unittest, no fixtures to install
 ```
 
 Only `ringmaster.py` is installed, so the icon lives in the script as well as in
@@ -179,6 +180,25 @@ everything), and `UI_DIRS` (directory names that suggest a served path).
 
 ---
 
+## Tests
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+They're end to end: each one starts a real ringmaster process on a spare port
+and talks to it over HTTP. Nothing is mocked. The discovery tests stand up fake
+services on loopback ports — a Gradio-style page whose name is only in an
+`og:title`, a REST API that advertises its UI in a JSON field, a port that 404s
+everything — then assert on what the scan made of them, so the whole path is
+covered: `ss` sees the port, ringmaster fetches it, classifies the response and
+hunts the routes behind it.
+
+About fifteen seconds, no network, nothing installed, nothing on the box
+touched. Tests needing `ss` skip themselves if `iproute2` is missing.
+
+---
+
 ## Troubleshooting
 
 **Nothing listed, or only Docker things.** `ss -tlnp` needs root to show process
@@ -231,3 +251,9 @@ sudo ./scripts/uninstall.sh --purge   # also delete /etc/ringmaster.pw
 ## License
 
 MIT — see [LICENSE.md](LICENSE.md).
+
+---
+
+## FAQ
+
+- The name "Ringmaster" refers to the master of ceremonies at a circus with multiple acts going on at the same time in different "rings".

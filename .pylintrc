@@ -4,3 +4,7 @@
 # so unbounded growth still gets flagged.
 [MAIN]
 max-module-lines=1500
+
+[BASIC]
+# Test methods say what they check in their names; setUp/tearDown are fixtures.
+no-docstring-rgx=^(_|test_|setUp|tearDown)
